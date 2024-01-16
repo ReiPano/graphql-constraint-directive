@@ -17,8 +17,6 @@ module.exports = async function ({ typeDefs, formatError, resolvers, schemaCreat
     schema = schemaCreatedCallback(schema)
   }
 
-  console.log('pluginOptions: ', pluginOptions)
-
   const plugins = [
     createApollo4QueryValidationPlugin(pluginOptions)
   ]
