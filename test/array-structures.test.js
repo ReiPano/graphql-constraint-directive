@@ -1,5 +1,6 @@
 const { deepStrictEqual, strictEqual } = require('assert')
 const { valueByImplType, isStatusCodeError, unwrapMoreValidationErrors } = require('./testutils')
+const { GraphQLError } = require('graphql')
 
 module.exports.test = function (setup, implType) {
   describe('Array structures', function () {
@@ -106,6 +107,77 @@ module.exports.test = function (setup, implType) {
             'Variable "$input" got invalid value "asdsdd" at "input.authors[0].name"' +
             valueByImplType(implType, '; Expected type "name_String_NotNull_maxLength_5"') +
             '. Must be no more than 5 characters in length'
+          )
+          strictEqual(
+            errors[1].message,
+            'Variable "$input" got invalid value 2 at "input.authors[0].age[1]"' +
+            valueByImplType(implType, '; Expected type "age_List_ListNotNull_Int_NotNull_min_3"') +
+            '. Must be at least 3'
+          )
+          strictEqual(
+            errors[2].message,
+            'Variable "$input" got invalid value 1 at "input.authors[1].age[0]"' +
+            valueByImplType(implType, '; Expected type "age_List_ListNotNull_Int_NotNull_min_3"') +
+            '. Must be at least 3'
+          )
+        })
+      })
+
+      describe('input object - custom formats', function () {
+        before(async function () {
+          this.typeDefs = /* GraphQL */`
+              type Query {
+                  books: [Book]
+              }
+              type Book {
+                  title: String
+              }
+              type Mutation {
+                  createBook(input: BookInput): Book
+              }
+              input BookInput {
+                  authors: [AuthorInput!]! 
+              }
+              input AuthorInput {
+                  name: String! @constraint(format: "custom-format")
+                  age: [Int!]! @constraint(min: 3)
+              }
+          `
+          const customFormats = {
+            'custom-format': (value) => {
+              if (value.length > 5) {
+                throw new GraphQLError('Max length for input is 5')
+              }
+              return true
+            }
+          }
+          this.request = await setup({ typeDefs: this.typeDefs, pluginOptions: { formats: customFormats } })
+        })
+
+        it('should pass', async function () {
+          const { body, statusCode } = await this.request
+            .post('/graphql')
+            .set('Accept', 'application/json')
+            .send({ query, variables: { input: { authors: [{ name: 'asdsd', age: [5, 7] }, { name: 'fdgt', age: [6, 5] }] } } })
+
+          strictEqual(statusCode, 200)
+          deepStrictEqual(body, { data: { createBook: null } })
+        })
+
+        it('should fail', async function () {
+          const { body, statusCode } = await this.request
+            .post('/graphql')
+            .set('Accept', 'application/json')
+            .send({ query, variables: { input: { authors: [{ name: 'asdsdd', age: [5, 2] }, { name: 'fdgt', age: [1, 5] }] } } })
+
+          // console.log(body)
+          isStatusCodeError(statusCode, implType)
+          const errors = unwrapMoreValidationErrors(body.errors)
+          strictEqual(
+            errors[0].message,
+            'Variable "$input" got invalid value "asdsdd" at "input.authors[0].name"' +
+            valueByImplType(implType, '; Expected type "name_String_NotNull_maxLength_5"') +
+            '. Max length for input is 5'
           )
           strictEqual(
             errors[1].message,
